@@ -7,8 +7,10 @@
 #include "rex_interfaces/msg/vesc_status.hpp"
 #include "rex_interfaces/msg/rover_control.hpp"
 #include "rex_interfaces/msg/rover_status.hpp"
-#include "rex_interfaces/msg/probe_control.hpp"
+#include "rex_interfaces/msg/sampler_control.hpp"
 #include "rex_interfaces/msg/manipulator_mqtt_message.hpp"
+#include "rex_interfaces/msg/battery_info.hpp"
+#include "rex_interfaces/msg/sampler_feedback.hpp"
 #define RAPIDJSON_HAS_STDSTRING 1
 #include "rapidjson/document.h"
 
@@ -26,7 +28,7 @@ public:
   void publishMessage_Wheels(rex_interfaces::msg::Wheels message);
   void publishMessage_RoverControl(rex_interfaces::msg::RoverControl message);
   void publishMessage_ManipulatorControl(rex_interfaces::msg::ManipulatorMqttMessage message);
-  void publishMessage_ProbeControl(rex_interfaces::msg::ProbeControl message);
+  void publishMessage_SamplerControl(rex_interfaces::msg::SamplerControl message);
   void publishMessage_RoverStatus(rex_interfaces::msg::RoverStatus message);
 
 private:
@@ -45,6 +47,8 @@ private:
   void fire_ZedImuData();
   void publishMqttMessage_ZedImuData(std::shared_ptr<sensor_msgs::msg::Imu> msg);
 
+  void callback_BatteryInfo(const rex_interfaces::msg::BatteryInfo::ConstSharedPtr &receivedMsg);
+  void callback_SamplerFeedback(const rex_interfaces::msg::SamplerFeedback::ConstSharedPtr &receivedMsg);
 
   std::shared_ptr<mqtt::async_client> mCli;
   int mQOS;
@@ -60,10 +64,13 @@ private:
   std::shared_ptr<sensor_msgs::msg::Imu> mMsg_ZedImuData;
   bool mFirst_ZedImuData = true;
 
+  rclcpp::Subscription<rex_interfaces::msg::BatteryInfo>::SharedPtr mSub_BatteryInfo;
+  rclcpp::Subscription<rex_interfaces::msg::SamplerFeedback>::SharedPtr mSub_SamplerFeedback;
+
   rclcpp::Publisher<rex_interfaces::msg::Wheels>::SharedPtr mPub_Wheels;
   rclcpp::Publisher<rex_interfaces::msg::RoverControl>::SharedPtr mPub_RoverControl;
   rclcpp::Publisher<rex_interfaces::msg::ManipulatorMqttMessage>::SharedPtr mPub_ManipulatorControl;
-  rclcpp::Publisher<rex_interfaces::msg::ProbeControl>::SharedPtr mPub_ProbeControl;
+  rclcpp::Publisher<rex_interfaces::msg::SamplerControl>::SharedPtr mPub_SamplerControl;
   rclcpp::Publisher<rex_interfaces::msg::RoverStatus>::SharedPtr mPub_RoverStatus;
 
   rclcpp::CallbackGroup::SharedPtr timer_cb_group;

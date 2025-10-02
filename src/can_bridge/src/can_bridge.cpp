@@ -13,8 +13,9 @@
 #include "rex_interfaces/msg/rover_control.hpp"
 #include "can_bridge/StatusMessage.hpp"
 #include "can_bridge/ManipulatorControl.hpp"
-#include "can_bridge/ProbeStatusForwarder.hpp"
-#include "can_bridge/ProbeControl.hpp"
+#include "can_bridge/SamplerStatusForwarder.hpp"
+#include "can_bridge/SamplerControl.hpp"
+#include "can_bridge/BatteryInfoForwarder.hpp"
 
 #include <std_srvs/srv/set_bool.hpp>
 
@@ -33,7 +34,7 @@ void doDrivingStuff(MotorControl &mtrCtl);
 static std::chrono::system_clock::time_point lastSendWheels;
 static std::chrono::nanoseconds diff;
 
-// TODO: 
+// TODO:
 // - Implement this as lifecycle node
 // - Utilize a new QoS profile for the publisher and subscriber
 // - Recreate the package to use new multi-node architecture (maybe multi-threaded?)
@@ -50,11 +51,12 @@ int main(int argc, char *argv[])
 	VescStatusHandler mVescStatusHandler(n, &motorControl);
 	StatusMessage mStatusMessage(n, true);
 	ManipulatorControl mManipulatorCtl(n);
-	ProbeStatusForwarder mProbeStatusForwarder(n);
-	ProbeControl mProbeCtl(n);
+	SamplerStatusForwarder mSamplerStatusForwarder(n);
+	SamplerControl mSamplerCtl(n);
+	BatteryInfoForwarder mBatteryInfoForwarder(n);
 
 	CanNodeMode canNodeMode = CanNodeMode::Created;
-	rclcpp::Rate rate(100);
+	rclcpp::Rate rate(1000);
 
 	std_srvs::srv::SetBool::Request req;
 	std_srvs::srv::SetBool::Response res;
@@ -67,7 +69,7 @@ int main(int argc, char *argv[])
 		switch (canNodeMode)
 		{
 		case CanNodeMode::Created:
-			
+
 			canNodeMode = CanNodeMode::Opening;
 			break;
 
@@ -79,7 +81,7 @@ int main(int argc, char *argv[])
 			break;
 
 		case CanNodeMode::Opened:
-			if ((iter++ % 100) == 9)
+			if ((iter++ % 500) == 9)
 			{
 				mStatusMessage.sendStatusMessage();
 			}

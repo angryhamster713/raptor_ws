@@ -23,19 +23,6 @@ find_package(can_msgs REQUIRED)
 find_package(libVescCan REQUIRED)
 find_package(rex_interfaces REQUIRED)
 
-# rosidl_generate_interfaces(${PROJECT_NAME}
-#   "msg/VescMotorCommand.msg"
-#   "msg/ManipulatorControl.msg"
-#   "msg/ProbeControl.msg"
-#   "msg/ProbeStatus.msg"
-#   "msg/RoverControl.msg"
-#   "msg/RoverStatus.msg"
-#   "msg/VescStatus.msg"
-#   "msg/Wheel.msg"
-#   "msg/Wheels.msg"
-#   DEPENDENCIES std_msgs
-# )
-
 #rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
 
 add_executable(can_bridge_node src/can_bridge.cpp 
@@ -45,8 +32,9 @@ add_executable(can_bridge_node src/can_bridge.cpp
 	src/StatusMessage.cpp
 	src/MotorControl.cpp
 	src/ManipulatorControl.cpp
-	src/ProbeStatusForwarder.cpp
-  src/ProbeControl.cpp
+	src/SamplerStatusForwarder.cpp
+  src/SamplerControl.cpp
+  src/BatteryInfoForwarder.cpp
  )
 
 target_include_directories(can_bridge_node PUBLIC
