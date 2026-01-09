@@ -16,6 +16,7 @@
 #include "can_bridge/SamplerStatusForwarder.hpp"
 #include "can_bridge/SamplerControl.hpp"
 #include "can_bridge/BatteryInfoForwarder.hpp"
+#include "can_bridge/CalibrateAxis.hpp"
 
 #include <std_srvs/srv/set_bool.hpp>
 
@@ -54,6 +55,7 @@ int main(int argc, char *argv[])
 	SamplerStatusForwarder mSamplerStatusForwarder(n);
 	SamplerControl mSamplerCtl(n);
 	BatteryInfoForwarder mBatteryInfoForwarder(n);
+	CalibrateAxis mCalibrateAxis(n);
 
 	CanNodeMode canNodeMode = CanNodeMode::Created;
 	rclcpp::Rate rate(1000);
