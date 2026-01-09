@@ -13,6 +13,19 @@ extern "C"
 #include <libVescCan/VESC.h>
 }
 
+struct PositionStamped
+{
+    float position;
+    rclcpp::Time receivedAt;
+};
+
+struct VelocityStamped
+{
+    int erpm;
+    rclcpp::Time receivedAt;
+};
+
+
 class CalibrateAxis
 {
 public:
@@ -20,8 +33,9 @@ public:
 private:
 	rclcpp::Node::SharedPtr mNh;
 
-    std::array<VESC_Id_t, 4> mIdsToCalibrate;
-    std::map<VESC_Id_t, float> mMotorPositions;
+    std::array<VESC_Id_t, 4> mCalibrationMotors;
+    std::map<VESC_Id_t, PositionStamped> mMotorPositions;
+    std::map<VESC_Id_t, VelocityStamped> mMotorVelocities;
 
     float mOffset;
     VESC_Id_t mCurrentMotorID;
@@ -33,12 +47,15 @@ private:
     void handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg);
     void handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis::ConstSharedPtr &msg);
 
-    bool calibratedMotorListContains(VESC_Id_t vescID);
+    bool motorCanBeCalibrated(VESC_Id_t vescID);
+
+    bool CalibrateAxis::isRecordedVelocityValid(VESC_Id_t vescID);
+    bool CalibrateAxis::isRecordedPositionValid(VESC_Id_t vescID);
+
     void stopMotor(VESC_Id_t vescID);
-    // can_msgs::msg::Frame encodeMotorVel(const rex_interfaces::msg::VescMotorCommand &vescMotorCommand, const VESC_Id_t vescId);
 
     can_msgs::msg::Frame frameStop(VESC_Id_t vescID);
     can_msgs::msg::Frame frameSetOrigin(VESC_Id_t vescID);
     can_msgs::msg::Frame frameSetPosition(VESC_Id_t vescID, float position);
-    can_msgs::msg::Frame frameSetSpeed(VESC_Id_t vescID, float speed);
+    can_msgs::msg::Frame frameSetVelocity(VESC_Id_t vescID, float speed);
 };

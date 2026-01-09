@@ -1,9 +1,14 @@
 #include "can_bridge/CalibrateAxis.hpp"
 
-constexpr float CALIBRATION_SPEED = 3.0;
-constexpr float CALIBRATION_ACCELERATION = 3.0;
+constexpr float CALIBRATION_POS_SPEED = 3.0f;
+constexpr float CALIBRATION_POS_ACCELERATION = 3.0f;
+
+constexpr float CALIBRATION_MAX_SPEED = 3.0f;
+constexpr float CALIBRATION_MAX_OFFSET_SHIFT = 30.0f;
 
 constexpr float NaN = std::numeric_limits<float>::quiet_NaN();
+
+constexpr float OUTDATED_DURATION = 0.3f;
 
 CalibrateAxis::CalibrateAxis(rclcpp::Node::SharedPtr &nh) : mNh(nh) {
     const rclcpp::QoS qos = rclcpp::QoS(rclcpp::KeepLast(256));
@@ -20,8 +25,7 @@ CalibrateAxis::CalibrateAxis(rclcpp::Node::SharedPtr &nh) : mNh(nh) {
     );
 	mRawCanPub = mNh->create_publisher<can_msgs::msg::Frame>(RosCanConstants::RosTopics::can_raw_TX, qos);
 
-    std::map<VESC_Id_t, float> mMotorPositions;
-    mIdsToCalibrate = {
+    mCalibrationMotors = {
         RosCanConstants::VescIds::front_left_stepper, 
         RosCanConstants::VescIds::front_right_stepper, 
         RosCanConstants::VescIds::rear_left_stepper, 
@@ -33,85 +37,155 @@ CalibrateAxis::CalibrateAxis(rclcpp::Node::SharedPtr &nh) : mNh(nh) {
 };
 
 
-bool CalibrateAxis::calibratedMotorListContains(VESC_Id_t id)
+bool CalibrateAxis::motorCanBeCalibrated(VESC_Id_t vescID)
 {
-    return std::find(mIdsToCalibrate.begin(), mIdsToCalibrate.end(), id) != mIdsToCalibrate.end();
+    return std::find(mCalibrationMotors.begin(), mCalibrationMotors.end(), vescID) != mCalibrationMotors.end();
 }
 
 void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg)
 {
-    if (!calibratedMotorListContains(msg->vesc_id)) {
+    if (!motorCanBeCalibrated(msg->vesc_id)) {
         return;
     }
-    mMotorPositions[msg->vesc_id] = msg->pid_pos;
+    rclcpp::Time now = rclcpp::Clock().now();
+    mMotorPositions[msg->vesc_id] = {msg->pid_pos, now};
+    mMotorVelocities[msg->vesc_id] = {msg->erpm, now};
 }
 
 void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis::ConstSharedPtr &msg)
 {
+    using CalibrateMsg = rex_interfaces::msg::CalibrateAxis;
+
     // Reject messages to motors not on the list
-    if (!calibratedMotorListContains(msg->vesc_id))
+    if (!motorCanBeCalibrated(msg->vesc_id))
     {
         RCLCPP_ERROR(mNh->get_logger(), "Attempted to calibrate motor with invalid VESC ID: %#x", msg->vesc_id);
+        return;
     }
 
-    // TODO: If motor is moving, only accept STOP or CANCEL
+    // If velocity missing or outdated
+    if (!isRecordedVelocityValid(msg->vesc_id))
+    {
+        return;
+    }
 
+    // If motor is still moving, only STOP or CANCEL are fine
+    if (abs(mMotorVelocities[msg->vesc_id].erpm) > 0) {
+        if (!(msg->action_type == CalibrateMsg::ACTION_TYPE_STOP || msg->action_type == CalibrateMsg::ACTION_TYPE_CANCEL)) {
+            RCLCPP_DEBUG(mNh->get_logger(), "Calibration request rejected, the motor is still moving");
+            return;
+        }
+    }
+
+    // --------------------
+
+    // Action any other than OFFSET
     if (msg->action_type != rex_interfaces::msg::CalibrateAxis::ACTION_TYPE_OFFSET)
     {
-        // Forget offset
         mOffset = NaN;
     }
+
+    // Message to a different motor
     if (mCurrentMotorID != msg->vesc_id)
     {
-        // Message to a different motor
         if (mCurrentMotorID) stopMotor(mCurrentMotorID);
         mCurrentMotorID = msg->vesc_id;
         mOffset = NaN;
     }
 
-    using CalibrateMsg = rex_interfaces::msg::CalibrateAxis;
+    // --------------------
+
     can_msgs::msg::Frame fr;
-    switch (msg->action_type) {
+    switch (msg->action_type)
+    {
         case CalibrateMsg::ACTION_TYPE_STOP:
             stopMotor(msg->vesc_id);
             break;
+
         case CalibrateMsg::ACTION_TYPE_RETURN_TO_ORIGIN:
-            // TODO: Reject if motor is moving
             fr = frameSetPosition(msg->vesc_id, 0.0f);
+            mOffset = 0.0;
             mRawCanPub->publish(fr);
             break;
+
         case CalibrateMsg::ACTION_TYPE_CONFIRM:
-            // TODO: Reject if motor is moving
             stopMotor(msg->vesc_id);
             fr = frameSetOrigin(msg->vesc_id);
             mRawCanPub->publish(fr);
             mOffset = NaN;
             mCurrentMotorID = 0;
             break;
+
         case CalibrateMsg::ACTION_TYPE_CANCEL:
             stopMotor(msg->vesc_id);
             mOffset = NaN;
             mCurrentMotorID = 0;
             break;
+
         case CalibrateMsg::ACTION_TYPE_OFFSET:
-            // TODO: Reject if motor is moving
-            // TODO: check if copied value present && not outdated
-            if (std::isnan(mOffset)) mOffset = mMotorPositions[msg->vesc_id];
-            // TODO: Value limit
-            mOffset += msg->value;
+            if (std::isnan(mOffset))
+            {
+                if (!isRecordedPositionValid(msg->vesc_id)) {
+                    return;
+                }
+                // Copy realtime-tracked position
+                mOffset = mMotorPositions[msg->vesc_id].position;
+            }
+
+            // Limit value
+            float offsetShift = msg->value;
+            if (std::abs(offsetShift) > CALIBRATION_MAX_OFFSET_SHIFT)
+            {
+                RCLCPP_WARN(mNh->get_logger(), "Calibration: provided a relative offset that's too large (max %f)", CALIBRATION_MAX_OFFSET_SHIFT);
+                offsetShift = std::clamp(offsetShift, -CALIBRATION_MAX_OFFSET_SHIFT, CALIBRATION_MAX_OFFSET_SHIFT);
+            }
+
+            mOffset += offsetShift;
             fr = frameSetPosition(msg->vesc_id, mOffset);
             mRawCanPub->publish(fr);
             break;
+
         case CalibrateMsg::ACTION_TYPE_SET_VELOCITY:
-            // TODO: Reject if motor is moving
-            // TODO: check if copied value present && not outdated
-            if (std::isnan(mOffset)) mOffset = mMotorPositions[msg->vesc_id];
-            // TODO: Value limit
-            mOffset += msg->value;
-            fr = frameSetPosition(msg->vesc_id, mOffset);
+            // Limit value
+            float velocity = msg->value;
+            if (std::abs(velocity) > CALIBRATION_MAX_SPEED) {
+                RCLCPP_WARN(mNh->get_logger(), "Calibration: provided a velocity that's too large (max %f)", CALIBRATION_MAX_SPEED);
+                velocity = std::clamp(velocity, -CALIBRATION_MAX_SPEED, CALIBRATION_MAX_SPEED);
+            }
+
+            fr = frameSetVelocity(msg->vesc_id, mOffset);
             mRawCanPub->publish(fr);
             break;
     }
+}
+
+bool CalibrateAxis::isRecordedVelocityValid(VESC_Id_t vescID) {
+    if (!mMotorVelocities.count(vescID)) {
+        RCLCPP_WARN(mNh->get_logger(), "Calibration failed, no recorded velocity for motor with ID %#x", vescID);
+        return false;
+    }
+    rclcpp::Time now = rclcpp::Clock().now();
+    if ((now-mMotorVelocities[vescID].receivedAt).seconds() > OUTDATED_DURATION) {
+        RCLCPP_WARN(mNh->get_logger(), "Calibration failed, recorded velocity for motor with id %#x is outdated", vescID);
+    }
+}
+
+bool CalibrateAxis::isRecordedPositionValid(VESC_Id_t vescID) {
+    if (!mMotorPositions.count(vescID)) {
+        RCLCPP_WARN(mNh->get_logger(), "Calibration failed, no recorded position for motor with ID %#x", vescID);
+        return false;
+    }
+
+    rclcpp::Time now = rclcpp::Clock().now();
+    if ((now-mMotorPositions[vescID].receivedAt).seconds() > OUTDATED_DURATION) {
+        RCLCPP_WARN(mNh->get_logger(), "Calibration failed, recorded position for motor with id %#x is outdated", vescID);
+    }
+}
+
+void CalibrateAxis::stopMotor(VESC_Id_t vescID)
+{
+    can_msgs::msg::Frame fr = frameStop(vescID);
+    mRawCanPub->publish(fr);
 }
 
 can_msgs::msg::Frame CalibrateAxis::frameStop(VESC_Id_t vescID)
@@ -131,12 +205,6 @@ can_msgs::msg::Frame CalibrateAxis::frameStop(VESC_Id_t vescID)
 	fr.header.stamp = rclcpp::Clock().now();
 
 	return fr;
-}
-
-void CalibrateAxis::stopMotor(VESC_Id_t vescID)
-{
-    can_msgs::msg::Frame fr = frameStop(vescID);
-    mRawCanPub->publish(fr);
 }
 
 can_msgs::msg::Frame CalibrateAxis::frameSetOrigin(VESC_Id_t vescID)
@@ -165,8 +233,8 @@ can_msgs::msg::Frame CalibrateAxis::frameSetPosition(VESC_Id_t vescID, float pos
 
     cmdf.command = VESC_COMMAND_SET_POS_SPEED_LOOP;
     cmdf.commandDataEx_0 = position;
-    cmdf.commandDataEx_1 = CALIBRATION_SPEED;
-    cmdf.commandDataEx_2 = CALIBRATION_ACCELERATION;
+    cmdf.commandDataEx_1 = CALIBRATION_POS_SPEED;
+    cmdf.commandDataEx_2 = CALIBRATION_POS_ACCELERATION;
     cmdf.vescID = vescID;
 
 	VESC_RawFrame rf;
@@ -179,15 +247,13 @@ can_msgs::msg::Frame CalibrateAxis::frameSetPosition(VESC_Id_t vescID, float pos
 	return fr;
 }
 
-can_msgs::msg::Frame CalibrateAxis::frameSetSpeed(VESC_Id_t vescID, float speed)
+can_msgs::msg::Frame CalibrateAxis::frameSetVelocity(VESC_Id_t vescID, float velocity)
 {
 	VESC_CommandFrame cmdf;
 	VESC_ZeroMemory(&cmdf, sizeof(cmdf));
 
     cmdf.command = VESC_COMMAND_SET_RPM;
-    cmdf.commandDataEx_0 = speed;
-    cmdf.commandDataEx_1 = CALIBRATION_SPEED;
-    cmdf.commandDataEx_2 = CALIBRATION_ACCELERATION;
+    cmdf.commandData = velocity;
     cmdf.vescID = vescID;
 
 	VESC_RawFrame rf;
@@ -199,35 +265,3 @@ can_msgs::msg::Frame CalibrateAxis::frameSetSpeed(VESC_Id_t vescID, float speed)
 
 	return fr;
 }
-
-// can_msgs::msg::Frame CalibrateAxis::encodeMotorVel(const rex_interfaces::msg::VescMotorCommand &vescMotorCommand, const VESC_Id_t vescId)
-// {
-// 	VESC_CommandFrame cmdf;
-// 	VESC_ZeroMemory(&cmdf, sizeof(cmdf));
-
-// 	switch (vescMotorCommand.command_id)
-// 	{
-// 	case VESC_COMMAND_SET_ORIGIN:
-// 		cmdf.commandDataExB = vescMotorCommand.set_origin_data;
-// 		break;
-// 	case VESC_COMMAND_SET_POS_SPEED_LOOP:
-// 		cmdf.commandDataEx_0 = vescMotorCommand.set_pos_speed_loop_position;
-// 		cmdf.commandDataEx_1 = vescMotorCommand.set_pos_speed_loop_speed;
-// 		cmdf.commandDataEx_2 = vescMotorCommand.set_pos_speed_loop_acceleration;
-// 		break;
-// 	default:
-// 		cmdf.commandData = vescMotorCommand.set_value;
-// 	}
-
-// 	cmdf.command = vescMotorCommand.command_id;
-// 	cmdf.vescID = vescId;
-
-// 	VESC_RawFrame rf;
-// 	VESC_ZeroMemory(&rf, sizeof(rf));
-// 	VESC_convertCmdToRaw(&rf, &cmdf);
-
-// 	can_msgs::msg::Frame fr = VescInterop::vescToRos(rf);
-// 	fr.header.stamp = rclcpp::Clock().now();
-
-// 	return fr;
-// }
