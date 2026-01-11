@@ -1,19 +1,21 @@
 #include "can_bridge/CalibrateAxis.hpp"
 
-constexpr float CALIBRATION_POS_SPEED = 3.0f;
-constexpr float CALIBRATION_POS_ACCELERATION = 3.0f;
+const std::string CALIBRATION_POS_SPEED = "calibration.pos_speed";
+const std::string CALIBRATION_POS_ACCELERATION = "calibration.pos_acceleration";
 
-constexpr float CALIBRATION_MAX_SPEED = 3.0f;
-constexpr float CALIBRATION_MAX_OFFSET_SHIFT = 30.0f;
+const std::string CALIBRATION_MAX_SPEED = "calibration.max_speed";
+const std::string CALIBRATION_MAX_OFFSET_SHIFT = "calibration.max_offset_shift";
+
+const std::string CALIBRATION_OUTDATED_DURATION_S = "calibration.outdated_duration_s";
+const std::string CALIBRATION_SPEED_TIMEOUT_MS = "calibration.speed_timeout_ms";
 
 constexpr float NaN = std::numeric_limits<float>::quiet_NaN();
-
-constexpr float OUTDATED_DURATION_S = 0.3f;
-constexpr int SPEED_TIMEOUT_MS = 500;
 
 CalibrateAxis::CalibrateAxis(rclcpp::Node::SharedPtr &nh) : mNh(nh)
 {
 	const rclcpp::QoS qos = rclcpp::QoS(rclcpp::KeepLast(256));
+
+	initParams();
 
 	mVescStatusSub = mNh->create_subscription<rex_interfaces::msg::VescStatus>(
 		RosCanConstants::RosTopics::can_vesc_status,
@@ -35,6 +37,46 @@ CalibrateAxis::CalibrateAxis(rclcpp::Node::SharedPtr &nh) : mNh(nh)
 
 	RCLCPP_INFO(mNh->get_logger(), "Calibration module started.");
 };
+
+void CalibrateAxis::initParams()
+{
+	mFloatParams = {
+		{CALIBRATION_POS_SPEED, 3.0f},
+		{CALIBRATION_POS_ACCELERATION, 3.0f},
+		{CALIBRATION_MAX_SPEED, 3.0f},
+		{CALIBRATION_MAX_OFFSET_SHIFT, 30.0f},
+		{CALIBRATION_SPEED_TIMEOUT_MS, 0.3f}};
+	for (auto &[name, value] : mFloatParams)
+	{
+		mNh->declare_parameter(name, value);
+		mFloatParams[name] = mNh->get_parameter(name).as_double();
+	}
+
+	mIntParams = {
+		{CALIBRATION_SPEED_TIMEOUT_MS, 500}};
+	for (auto &[name, value] : mIntParams)
+	{
+		mNh->declare_parameter(name, value);
+		mIntParams[name] = mNh->get_parameter(name).as_int();
+	}
+
+	mNh->add_post_set_parameters_callback(
+		[this](const std::vector<rclcpp::Parameter> &params)
+		{
+			for (const auto &param : params)
+			{
+				const std::string name = param.get_name();
+				if (mFloatParams.count(name))
+				{
+					mFloatParams[name] = param.as_double();
+				}
+				else if (mIntParams.count(name))
+				{
+					mIntParams[name] = param.as_int();
+				}
+			}
+		});
+}
 
 bool CalibrateAxis::calibrationMotorsContains(VESC_Id_t vescID)
 {
@@ -139,10 +181,10 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 
 		// Limit value
 		offsetShift = msg->value;
-		if (std::abs(offsetShift) > CALIBRATION_MAX_OFFSET_SHIFT)
+		if (std::abs(offsetShift) > mFloatParams[CALIBRATION_MAX_OFFSET_SHIFT])
 		{
-			RCLCPP_WARN(mNh->get_logger(), "Calibration: provided a relative offset that's too large (max %f)", CALIBRATION_MAX_OFFSET_SHIFT);
-			offsetShift = std::clamp(offsetShift, -CALIBRATION_MAX_OFFSET_SHIFT, CALIBRATION_MAX_OFFSET_SHIFT);
+			RCLCPP_WARN(mNh->get_logger(), "Calibration: provided a relative offset that's too large (max %f)", mFloatParams[CALIBRATION_MAX_OFFSET_SHIFT]);
+			offsetShift = std::clamp(offsetShift, -mFloatParams[CALIBRATION_MAX_OFFSET_SHIFT], mFloatParams[CALIBRATION_MAX_OFFSET_SHIFT]);
 		}
 
 		mOffset += offsetShift;
@@ -153,10 +195,10 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 	case CalibrateMsg::ACTION_TYPE_SET_VELOCITY:
 		// Limit value
 		float velocity = msg->value;
-		if (std::abs(velocity) > CALIBRATION_MAX_SPEED)
+		if (std::abs(velocity) > mFloatParams[CALIBRATION_MAX_SPEED])
 		{
-			RCLCPP_WARN(mNh->get_logger(), "Calibration: provided a velocity that's too large (max %f)", CALIBRATION_MAX_SPEED);
-			velocity = std::clamp(velocity, -CALIBRATION_MAX_SPEED, CALIBRATION_MAX_SPEED);
+			RCLCPP_WARN(mNh->get_logger(), "Calibration: provided a velocity that's too large (max %f)", mFloatParams[CALIBRATION_MAX_SPEED]);
+			velocity = std::clamp(velocity, -mFloatParams[CALIBRATION_MAX_SPEED], mFloatParams[CALIBRATION_MAX_SPEED]);
 		}
 
 		// Handle the stop timers
@@ -181,7 +223,7 @@ bool CalibrateAxis::isRecordedVelocityValid(VESC_Id_t vescID)
 		return false;
 	}
 	rclcpp::Time now = rclcpp::Clock().now();
-	if ((now - mMotorVelocities[vescID].receivedAt).seconds() > OUTDATED_DURATION_S)
+	if ((now - mMotorVelocities[vescID].receivedAt).seconds() > mFloatParams[CALIBRATION_OUTDATED_DURATION_S])
 	{
 		RCLCPP_WARN(mNh->get_logger(), "Calibration failed, recorded velocity for motor with id %#x is outdated", vescID);
 		return false;
@@ -200,7 +242,7 @@ bool CalibrateAxis::isRecordedPositionValid(VESC_Id_t vescID)
 	}
 
 	rclcpp::Time now = rclcpp::Clock().now();
-	if ((now - mMotorPositions[vescID].receivedAt).seconds() > OUTDATED_DURATION_S)
+	if ((now - mMotorPositions[vescID].receivedAt).seconds() > mFloatParams[CALIBRATION_OUTDATED_DURATION_S])
 	{
 		RCLCPP_WARN(mNh->get_logger(), "Calibration failed, recorded position for motor with id %#x is outdated", vescID);
 		return false;
@@ -213,7 +255,7 @@ void CalibrateAxis::startTimeout(VESC_Id_t vescID)
 	// Cancel previous timeout
 	cancelTimeout(vescID);
 	mSpeedStopTimers[vescID] = mNh->create_timer(
-		std::chrono::milliseconds(SPEED_TIMEOUT_MS),
+		std::chrono::milliseconds(mIntParams[CALIBRATION_SPEED_TIMEOUT_MS]),
 		[this, vescID]()
 		{
 			stopMotor(vescID);
@@ -286,8 +328,8 @@ can_msgs::msg::Frame CalibrateAxis::frameSetPosition(VESC_Id_t vescID, float pos
 
 	cmdf.command = VESC_COMMAND_SET_POS_SPEED_LOOP;
 	cmdf.commandDataEx_0 = position;
-	cmdf.commandDataEx_1 = CALIBRATION_POS_SPEED;
-	cmdf.commandDataEx_2 = CALIBRATION_POS_ACCELERATION;
+	cmdf.commandDataEx_1 = mFloatParams[CALIBRATION_POS_SPEED];
+	cmdf.commandDataEx_2 = mFloatParams[CALIBRATION_POS_ACCELERATION];
 	cmdf.vescID = vescID;
 
 	VESC_RawFrame rf;
