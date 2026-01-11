@@ -8,12 +8,11 @@ constexpr float CALIBRATION_MAX_OFFSET_SHIFT = 30.0f;
 
 constexpr float NaN = std::numeric_limits<float>::quiet_NaN();
 
-constexpr float OUTDATED_DURATION = 0.3f;
+constexpr float OUTDATED_DURATION_S = 0.3f;
+constexpr int SPEED_TIMEOUT_MS = 500;
 
 CalibrateAxis::CalibrateAxis(rclcpp::Node::SharedPtr &nh) : mNh(nh) {
     const rclcpp::QoS qos = rclcpp::QoS(rclcpp::KeepLast(256));
-
-    RCLCPP_INFO(mNh->get_logger(), "Setting up");
 
     mVescStatusSub = mNh->create_subscription<rex_interfaces::msg::VescStatus>(
         RosCanConstants::RosTopics::can_vesc_status,
@@ -34,17 +33,19 @@ CalibrateAxis::CalibrateAxis(rclcpp::Node::SharedPtr &nh) : mNh(nh) {
 
     mOffset = NaN;
     mCurrentMotorID = 0;
+
+    RCLCPP_INFO(mNh->get_logger(), "Calibration module started.");
 };
 
 
-bool CalibrateAxis::motorCanBeCalibrated(VESC_Id_t vescID)
+bool CalibrateAxis::calibrationMotorsContains(VESC_Id_t vescID)
 {
     return std::find(mCalibrationMotors.begin(), mCalibrationMotors.end(), vescID) != mCalibrationMotors.end();
 }
 
 void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg)
 {
-    if (!motorCanBeCalibrated(msg->vesc_id)) {
+    if (!calibrationMotorsContains(msg->vesc_id)) {
         return;
     }
     rclcpp::Time now = rclcpp::Clock().now();
@@ -57,7 +58,7 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
     using CalibrateMsg = rex_interfaces::msg::CalibrateAxis;
 
     // Reject messages to motors not on the list
-    if (!motorCanBeCalibrated(msg->vesc_id))
+    if (!calibrationMotorsContains(msg->vesc_id))
     {
         RCLCPP_ERROR(mNh->get_logger(), "Attempted to calibrate motor with invalid VESC ID: %#x", msg->vesc_id);
         return;
@@ -96,6 +97,7 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
     // --------------------
 
     can_msgs::msg::Frame fr;
+    float offsetShift;
     switch (msg->action_type)
     {
         case CalibrateMsg::ACTION_TYPE_STOP:
@@ -133,7 +135,7 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
             }
 
             // Limit value
-            float offsetShift = msg->value;
+            offsetShift = msg->value;
             if (std::abs(offsetShift) > CALIBRATION_MAX_OFFSET_SHIFT)
             {
                 RCLCPP_WARN(mNh->get_logger(), "Calibration: provided a relative offset that's too large (max %f)", CALIBRATION_MAX_OFFSET_SHIFT);
@@ -153,6 +155,10 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
                 velocity = std::clamp(velocity, -CALIBRATION_MAX_SPEED, CALIBRATION_MAX_SPEED);
             }
 
+            // Handle the stop timers
+            if (velocity == 0.0f) cancelTimeout(msg->vesc_id);
+            else startTimeout(msg->vesc_id);
+            
             fr = frameSetVelocity(msg->vesc_id, mOffset);
             mRawCanPub->publish(fr);
             break;
@@ -160,30 +166,64 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 }
 
 bool CalibrateAxis::isRecordedVelocityValid(VESC_Id_t vescID) {
+	// Checks if the tracked velocity is missing or outdated
+
     if (!mMotorVelocities.count(vescID)) {
         RCLCPP_WARN(mNh->get_logger(), "Calibration failed, no recorded velocity for motor with ID %#x", vescID);
         return false;
     }
     rclcpp::Time now = rclcpp::Clock().now();
-    if ((now-mMotorVelocities[vescID].receivedAt).seconds() > OUTDATED_DURATION) {
+    if ((now-mMotorVelocities[vescID].receivedAt).seconds() > OUTDATED_DURATION_S) {
         RCLCPP_WARN(mNh->get_logger(), "Calibration failed, recorded velocity for motor with id %#x is outdated", vescID);
+        return false;
     }
+	return true;
 }
 
 bool CalibrateAxis::isRecordedPositionValid(VESC_Id_t vescID) {
+	// Checks if the tracked position is missing or outdated
+
     if (!mMotorPositions.count(vescID)) {
         RCLCPP_WARN(mNh->get_logger(), "Calibration failed, no recorded position for motor with ID %#x", vescID);
         return false;
     }
 
     rclcpp::Time now = rclcpp::Clock().now();
-    if ((now-mMotorPositions[vescID].receivedAt).seconds() > OUTDATED_DURATION) {
+    if ((now-mMotorPositions[vescID].receivedAt).seconds() > OUTDATED_DURATION_S) {
         RCLCPP_WARN(mNh->get_logger(), "Calibration failed, recorded position for motor with id %#x is outdated", vescID);
+        return false;
     }
+	return true;
+}
+
+void CalibrateAxis::startTimeout(VESC_Id_t vescID)
+{
+	// Cancel previous timeout
+	cancelTimeout(vescID);
+    mSpeedStopTimers[vescID] = mNh->create_timer(
+        std::chrono::milliseconds(SPEED_TIMEOUT_MS),
+        [this, vescID]() {
+            stopMotor(vescID);
+            // cancelTimeout(vescID); // Redundant as stopMotor already calls cancelTimeout()
+        }
+    );
+}
+
+void CalibrateAxis::cancelTimeout(VESC_Id_t vescID)
+{
+	// Check if ID in map. If it is, check if the pointer is non-null. If not, cancel.
+	auto iterator = mSpeedStopTimers.find(vescID);
+	if (iterator == mSpeedStopTimers.end() || !iterator->second || iterator->second->is_canceled()) {
+		// Nothing to cancel
+		return;
+	}
+	iterator->second->cancel();
 }
 
 void CalibrateAxis::stopMotor(VESC_Id_t vescID)
 {
+	cancelTimeout(vescID);
+
     can_msgs::msg::Frame fr = frameStop(vescID);
     mRawCanPub->publish(fr);
 }

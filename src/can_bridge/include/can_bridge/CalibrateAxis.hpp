@@ -36,6 +36,7 @@ private:
     std::array<VESC_Id_t, 4> mCalibrationMotors;
     std::map<VESC_Id_t, PositionStamped> mMotorPositions;
     std::map<VESC_Id_t, VelocityStamped> mMotorVelocities;
+    std::map<VESC_Id_t, rclcpp::TimerBase::SharedPtr> mSpeedStopTimers;
 
     float mOffset;
     VESC_Id_t mCurrentMotorID;
@@ -47,10 +48,13 @@ private:
     void handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg);
     void handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis::ConstSharedPtr &msg);
 
-    bool motorCanBeCalibrated(VESC_Id_t vescID);
+    bool calibrationMotorsContains(VESC_Id_t vescID);
 
-    bool CalibrateAxis::isRecordedVelocityValid(VESC_Id_t vescID);
-    bool CalibrateAxis::isRecordedPositionValid(VESC_Id_t vescID);
+    bool isRecordedVelocityValid(VESC_Id_t vescID);
+    bool isRecordedPositionValid(VESC_Id_t vescID);
+
+    void startTimeout(VESC_Id_t vescID);
+    void cancelTimeout(VESC_Id_t vescID);
 
     void stopMotor(VESC_Id_t vescID);
 
