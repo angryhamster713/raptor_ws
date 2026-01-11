@@ -59,6 +59,8 @@ private:
 
     void initParams();
 
+    rclcpp::node_interfaces::PostSetParametersCallbackHandle::SharedPtr mParamCallbackHandle;
+
     bool calibrationMotorsContains(VESC_Id_t vescID);
 
     void handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg);

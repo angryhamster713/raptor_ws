@@ -38,7 +38,7 @@ CalibrateAxis::CalibrateAxis(rclcpp::Node::SharedPtr &nh) : mNh(nh)
 	mOffset = NaN;
 	mCurrentMotorID = 0;
 
-	RCLCPP_INFO(mNh->get_logger(), "Calibration module started.");
+	RCLCPP_DEBUG(mNh->get_logger(), "Calibration module started.");
 };
 
 void CalibrateAxis::initParams()
@@ -63,7 +63,7 @@ void CalibrateAxis::initParams()
 		mIntParams[name] = mNh->get_parameter(name).as_int();
 	}
 
-	mNh->add_post_set_parameters_callback(
+	mParamCallbackHandle = mNh->add_post_set_parameters_callback(
 		[this](const std::vector<rclcpp::Parameter> &params)
 		{
 			for (const auto &param : params)
