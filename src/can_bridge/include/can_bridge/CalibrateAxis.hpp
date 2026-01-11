@@ -4,10 +4,15 @@
 #include "rex_interfaces/msg/calibrate_axis.hpp"
 #include "rex_interfaces/msg/vesc_motor_command.hpp"
 #include "can_bridge/RosCanConstants.hpp"
+#include "can_bridge/VescInterop.hpp"
+#include <can_msgs/msg/frame.hpp>
 #include <cmath>
 #include <limits>
-#include <can_msgs/msg/frame.hpp>
-#include "can_bridge/VescInterop.hpp"
+#include <array>
+#include <map>
+#include <vector>
+#include <algorithm>
+#include <functional>
 
 extern "C"
 {
@@ -54,11 +59,11 @@ private:
 
     void initParams();
 
+    bool calibrationMotorsContains(VESC_Id_t vescID);
+
     void handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg);
     void handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis::ConstSharedPtr &msg);
     void handleRoverStatus(const rex_interfaces::msg::RoverStatus::ConstSharedPtr &msg);
-
-    bool calibrationMotorsContains(VESC_Id_t vescID);
 
     bool isRecordedVelocityValid(VESC_Id_t vescID);
     bool isRecordedPositionValid(VESC_Id_t vescID);
