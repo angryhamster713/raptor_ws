@@ -45,7 +45,7 @@ void CalibrateAxis::initParams()
 		{CALIBRATION_POS_ACCELERATION, 3.0f},
 		{CALIBRATION_MAX_SPEED, 3.0f},
 		{CALIBRATION_MAX_OFFSET_SHIFT, 30.0f},
-		{CALIBRATION_SPEED_TIMEOUT_MS, 0.3f}};
+		{CALIBRATION_OUTDATED_DURATION_S, 0.3f}};
 	for (auto &[name, value] : mFloatParams)
 	{
 		mNh->declare_parameter(name, value);
@@ -112,7 +112,7 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 	}
 
 	// If motor is still moving, only STOP or CANCEL are fine
-	if (abs(mMotorVelocities[msg->vesc_id].erpm) > 0)
+	if (std::abs(mMotorVelocities[msg->vesc_id].erpm) > 0)
 	{
 		if (!(msg->action_type == CalibrateMsg::ACTION_TYPE_STOP || msg->action_type == CalibrateMsg::ACTION_TYPE_CANCEL))
 		{
@@ -207,7 +207,7 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 		else
 			startTimeout(msg->vesc_id);
 
-		fr = frameSetVelocity(msg->vesc_id, mOffset);
+		fr = frameSetVelocity(msg->vesc_id, velocity);
 		mRawCanPub->publish(fr);
 		break;
 	}
