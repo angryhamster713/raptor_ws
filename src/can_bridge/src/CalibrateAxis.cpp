@@ -24,6 +24,9 @@ CalibrateAxis::CalibrateAxis(rclcpp::Node::SharedPtr &nh) : mNh(nh)
 		"/MQTT/CalibrateAxis",
 		qos, std::bind(&CalibrateAxis::handleCalibrateAxis, this, std::placeholders::_1));
 	mRawCanPub = mNh->create_publisher<can_msgs::msg::Frame>(RosCanConstants::RosTopics::can_raw_TX, qos);
+	mRoverStatusSub = mNh->create_subscription<rex_interfaces::msg::RoverStatus>(
+		RosCanConstants::RosTopics::mqtt_rover_status,
+		qos, std::bind(&CalibrateAxis::handleRoverStatus, this, std::placeholders::_1));
 
 	mCalibrationMotors = {
 		RosCanConstants::VescIds::front_left_stepper,
@@ -98,7 +101,12 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 {
 	using CalibrateMsg = rex_interfaces::msg::CalibrateAxis;
 
-	// Reject messages to motors not on the list
+	if (!mLastRoverStatus || mLastRoverStatus->control_mode != rex_interfaces::msg::RoverStatus::CONTROL_MODE_ESTOP)
+	{
+		RCLCPP_ERROR(mNh->get_logger(), "Rover not in ESTOP, calibration not permitted.");
+		return;
+	}
+
 	if (!calibrationMotorsContains(msg->vesc_id))
 	{
 		RCLCPP_ERROR(mNh->get_logger(), "Attempted to calibrate motor with invalid VESC ID: %#x", msg->vesc_id);
@@ -211,6 +219,11 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 		mRawCanPub->publish(fr);
 		break;
 	}
+}
+
+void CalibrateAxis::handleRoverStatus(const rex_interfaces::msg::RoverStatus::ConstSharedPtr &msg)
+{
+	mLastRoverStatus = msg;
 }
 
 bool CalibrateAxis::isRecordedVelocityValid(VESC_Id_t vescID)

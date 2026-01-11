@@ -1,5 +1,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rex_interfaces/msg/vesc_status.hpp"
+#include "rex_interfaces/msg/rover_status.hpp"
 #include "rex_interfaces/msg/calibrate_axis.hpp"
 #include "rex_interfaces/msg/vesc_motor_command.hpp"
 #include "can_bridge/RosCanConstants.hpp"
@@ -44,14 +45,18 @@ private:
     float mOffset;
     VESC_Id_t mCurrentMotorID;
 
+    rex_interfaces::msg::RoverStatus::ConstSharedPtr mLastRoverStatus;
+
     rclcpp::Publisher<can_msgs::msg::Frame>::SharedPtr mRawCanPub;
     rclcpp::Subscription<rex_interfaces::msg::VescStatus>::SharedPtr mVescStatusSub;
     rclcpp::Subscription<rex_interfaces::msg::CalibrateAxis>::SharedPtr mCalibrateAxisSub;
+    rclcpp::Subscription<rex_interfaces::msg::RoverStatus>::SharedPtr mRoverStatusSub;
 
     void initParams();
 
     void handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg);
     void handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis::ConstSharedPtr &msg);
+    void handleRoverStatus(const rex_interfaces::msg::RoverStatus::ConstSharedPtr &msg);
 
     bool calibrationMotorsContains(VESC_Id_t vescID);
 
