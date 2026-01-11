@@ -25,13 +25,13 @@ struct VelocityStamped
     rclcpp::Time receivedAt;
 };
 
-
 class CalibrateAxis
 {
 public:
     CalibrateAxis(rclcpp::Node::SharedPtr &nh);
+
 private:
-	rclcpp::Node::SharedPtr mNh;
+    rclcpp::Node::SharedPtr mNh;
 
     std::array<VESC_Id_t, 4> mCalibrationMotors;
     std::map<VESC_Id_t, PositionStamped> mMotorPositions;
@@ -41,10 +41,10 @@ private:
     float mOffset;
     VESC_Id_t mCurrentMotorID;
 
-	rclcpp::Publisher<can_msgs::msg::Frame>::SharedPtr mRawCanPub;
+    rclcpp::Publisher<can_msgs::msg::Frame>::SharedPtr mRawCanPub;
     rclcpp::Subscription<rex_interfaces::msg::VescStatus>::SharedPtr mVescStatusSub;
     rclcpp::Subscription<rex_interfaces::msg::CalibrateAxis>::SharedPtr mCalibrateAxisSub;
-    
+
     void handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg);
     void handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis::ConstSharedPtr &msg);
 
