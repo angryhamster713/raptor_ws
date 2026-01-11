@@ -42,6 +42,7 @@ private:
 	void handleSetMotorVel(const rex_interfaces::msg::Wheels::ConstSharedPtr &msg);
 	void handleBatteryInfo(const rex_interfaces::msg::BatteryInfo::ConstSharedPtr &msg);
 	void handleRoverStatus(const rex_interfaces::msg::RoverStatus::ConstSharedPtr &msg);
+	void handleCalibrationMotorCommand(const rex_interfaces::msg::VescMotorCommand::ConstSharedPtr &msg);
 	void stopMotors();
 	void setWheelsOrigin();
 	void setCorrectState();
@@ -53,6 +54,7 @@ private:
 	rclcpp::Subscription<rex_interfaces::msg::Wheels>::SharedPtr mSetMotorVelSub; /**< ROS2 subscriber for motor velocity messages. */
 	rclcpp::Subscription<rex_interfaces::msg::BatteryInfo>::SharedPtr mBatteryInfoSub;
 	rclcpp::Subscription<rex_interfaces::msg::RoverStatus>::SharedPtr mRoverStatusSub;
+	rclcpp::Subscription<rex_interfaces::msg::VescMotorCommand>::SharedPtr mCalibrationMotorCommandSub;
 
 	rex_interfaces::msg::Wheels::ConstSharedPtr mLastSentFrame;
 	rex_interfaces::msg::BatteryInfo::ConstSharedPtr mLastBatteryInfo;

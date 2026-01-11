@@ -19,6 +19,9 @@ MotorControl::MotorControl(rclcpp::Node::SharedPtr &nh) : mNh(nh)
 	mRoverStatusSub = mNh->create_subscription<rex_interfaces::msg::RoverStatus>(
 		RosCanConstants::RosTopics::mqtt_rover_status,
 		qos, std::bind(&MotorControl::handleRoverStatus, this, std::placeholders::_1));
+	mCalibrationMotorCommandSub = mNh->create_subscription<rex_interfaces::msg::VescMotorCommand>(
+		RosCanConstants::RosTopics::mqtt_calibrate_axis,
+		qos, std::bind(&MotorControl::handleCalibrationMotorCommand, this, std::placeholders::_1));
 
 	mTimer = mNh->create_timer(std::chrono::milliseconds(500), std::bind(&MotorControl::handleTimerClb, this));
 }
@@ -45,6 +48,17 @@ void MotorControl::handleRoverStatus(const rex_interfaces::msg::RoverStatus::Con
 {
 	mLastRoverStatus = msg;
 	setCorrectState();
+}
+
+void MotorControl::handleCalibrationMotorCommand(const rex_interfaces::msg::VescMotorCommand::ConstSharedPtr &msg)
+{
+	if (mState != State::EStop)
+	{
+		RCLCPP_ERROR(mNh->get_logger(), "Calibration command sent not during ESTOP!");
+		return;
+	}
+	can_msgs::msg::Frame fr = encodeMotorVel(*msg, msg->vesc_id);
+	mRawCanPub->publish(fr);
 }
 
 void MotorControl::stopMotors()
