@@ -94,7 +94,7 @@ void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::Cons
 		return;
 	}
 	rclcpp::Time now = rclcpp::Clock().now();
-	mMotorPositions[msg->vesc_id] = {msg->pid_pos, now};
+	mMotorPositions[msg->vesc_id] = {static_cast<float>(msg->precise_pos), now};
 	mMotorVelocities[msg->vesc_id] = {msg->erpm, now};
 }
 
