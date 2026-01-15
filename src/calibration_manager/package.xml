@@ -11,6 +11,7 @@
 
   <depend>rclcpp</depend>
   <depend>ros_constants</depend>
+  <depend>rclcpp_components</depend>
   <build_depend>libVescCan</build_depend>
   <build_depend>rex_interfaces</build_depend>
   <exec_depend>rex_interfaces</exec_depend>

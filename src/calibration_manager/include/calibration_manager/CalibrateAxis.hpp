@@ -32,10 +32,10 @@ struct VelocityStamped
     rclcpp::Time receivedAt;
 };
 
-class CalibrateAxis
+class CalibrateAxis : public rclcpp::Node
 {
 public:
-    CalibrateAxis(rclcpp::Node::SharedPtr &nh);
+    CalibrateAxis(const rclcpp::NodeOptions &options);
 
 private:
     rclcpp::Node::SharedPtr mNh;
