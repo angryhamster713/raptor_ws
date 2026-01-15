@@ -36,6 +36,8 @@ CalibrateAxis::CalibrateAxis(const rclcpp::NodeOptions &options) : Node("calibra
 		RosCanConstants::VescIds::rear_right_stepper,
 	};
 
+	initTimeoutTimers();
+
 	mOffset = NaN;
 	mCurrentMotorID = 0;
 
@@ -264,29 +266,29 @@ bool CalibrateAxis::isRecordedPositionValid(VESC_Id_t vescID)
 	return true;
 }
 
+void CalibrateAxis::initTimeoutTimers()
+{
+	for (auto id : mCalibrationMotors)
+	{
+		mSpeedStopTimers[id] = this->create_timer(
+			std::chrono::milliseconds(mIntParams[CALIBRATION_SPEED_TIMEOUT_MS]),
+			[this, id]()
+			{
+				stopMotor(id);
+				// cancelTimeout(vescID); // Redundant as stopMotor already calls cancelTimeout()
+			});
+		mSpeedStopTimers[id]->cancel();
+	}
+}
+
 void CalibrateAxis::startTimeout(VESC_Id_t vescID)
 {
-	// Cancel previous timeout
-	cancelTimeout(vescID);
-	mSpeedStopTimers[vescID] = this->create_timer(
-		std::chrono::milliseconds(mIntParams[CALIBRATION_SPEED_TIMEOUT_MS]),
-		[this, vescID]()
-		{
-			stopMotor(vescID);
-			// cancelTimeout(vescID); // Redundant as stopMotor already calls cancelTimeout()
-		});
+	mSpeedStopTimers[vescID]->reset();
 }
 
 void CalibrateAxis::cancelTimeout(VESC_Id_t vescID)
 {
-	// Check if ID in map. If it is, check if the pointer is non-null. If not, cancel.
-	auto iterator = mSpeedStopTimers.find(vescID);
-	if (iterator == mSpeedStopTimers.end() || !iterator->second || iterator->second->is_canceled())
-	{
-		// Nothing to cancel
-		return;
-	}
-	iterator->second->cancel();
+	mSpeedStopTimers[vescID]->cancel();
 }
 
 void CalibrateAxis::stopMotor(VESC_Id_t vescID)

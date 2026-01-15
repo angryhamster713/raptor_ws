@@ -71,6 +71,7 @@ private:
     bool isRecordedVelocityValid(VESC_Id_t vescID);
     bool isRecordedPositionValid(VESC_Id_t vescID);
 
+    void initTimeoutTimers();
     void startTimeout(VESC_Id_t vescID);
     void cancelTimeout(VESC_Id_t vescID);
 
