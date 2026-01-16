@@ -173,7 +173,9 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 	// If motor is moving by Offset, only STOP and CANCEL are fine
 	if (mMode == Mode::SetVelocity)
 	{
-		if (msg->action_type != CalibrateMsg::ACTION_TYPE_SET_VELOCITY && msg->action_type != CalibrateMsg::ACTION_TYPE_STOP && msg->action_type != CalibrateMsg::ACTION_TYPE_CANCEL)
+		if (msg->action_type != CalibrateMsg::ACTION_TYPE_SET_VELOCITY &&
+			msg->action_type != CalibrateMsg::ACTION_TYPE_STOP &&
+			msg->action_type != CalibrateMsg::ACTION_TYPE_CANCEL)
 		{
 			RCLCPP_INFO(this->get_logger(), "Calibration request rejected, the motor is still moving");
 			return;
@@ -302,6 +304,14 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 
 void CalibrateAxis::handleRoverStatus(const rex_interfaces::msg::RoverStatus::ConstSharedPtr &msg)
 {
+	if (mLastRoverStatus &&
+		mLastRoverStatus->control_mode == rex_interfaces::msg::RoverStatus::CONTROL_MODE_ESTOP &&
+		msg->control_mode != rex_interfaces::msg::RoverStatus::CONTROL_MODE_ESTOP)
+	{
+		modeNothing();
+		mOffset = NaN;
+		mCurrentMotorID = 0;
+	}
 	mLastRoverStatus = msg;
 }
 
