@@ -32,13 +32,24 @@ struct VelocityStamped
     rclcpp::Time receivedAt;
 };
 
+enum class Mode
+{
+    SetVelocity,
+    SetPos,
+    Hold,
+    Nothing
+};
+
 class CalibrateAxis : public rclcpp::Node
 {
 public:
     CalibrateAxis(const rclcpp::NodeOptions &options);
 
 private:
-    rclcpp::Node::SharedPtr mNh;
+    Mode mMode;
+
+    rex_interfaces::msg::VescMotorCommand mFrameToSend;
+    rclcpp::TimerBase::SharedPtr mFrameSender;
 
     std::array<VESC_Id_t, 4> mCalibrationMotors;
     std::map<VESC_Id_t, PositionStamped> mMotorPositions;
@@ -67,6 +78,13 @@ private:
     void handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg);
     void handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis::ConstSharedPtr &msg);
     void handleRoverStatus(const rex_interfaces::msg::RoverStatus::ConstSharedPtr &msg);
+
+    void modeNothing();
+    void modeSetPos(VESC_Id_t vescID, float pos);
+    void modeSetVelocity(VESC_Id_t vescID, float velocity);
+    void modeHold(VESC_Id_t vescID);
+
+    bool isTimestampOutdated(rclcpp::Time stamp);
 
     bool isRecordedVelocityValid(VESC_Id_t vescID);
     bool isRecordedPositionValid(VESC_Id_t vescID);
