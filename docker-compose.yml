@@ -44,18 +44,12 @@ services:
     container_name: mosquitto
     network_mode: host
     volumes:
-      - ./.devcontainer/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./.devcontainer/mosquitto.conf:/mosquitto/config/mosquitto.conf:Z
       # read-only bind mounts make compose fail when the source path doesn't exist - and this is our intention here
-      - type: bind
-        source: ./.devcontainer/mosquitto_passwd
-        target: /mosquitto/mosquitto_passwd
-        read_only: true
-      - ./.mosquitto/data:/mosquitto/data
-      - ./.mosquitto/log:/mosquitto/log
-      - type: bind
-        source: ./.devcontainer/mqtt-server-certs
-        target: /mosquitto/certs
-        read_only: true
+      - ./.devcontainer/mosquitto_passwd:/mosquitto/mosquitto_passwd:ro,Z
+      - ./.mosquitto/data:/mosquitto/data:Z
+      - ./.mosquitto/log:/mosquitto/log:Z
+      - ./.devcontainer/mqtt-server-certs:/mosquitto/certs:ro,Z
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "mosquitto_sub", "-h", "localhost", "-p", "8883", "-t", "$$SYS/#", "--cafile", "/mosquitto/certs/ca.crt", "-u", "${MQTT_USERNAME:-raptors}", "-P", "${MQTT_PASSWORD:-changeme}", "-C", "1", "-i", "healthcheck", "-W", "3"]
