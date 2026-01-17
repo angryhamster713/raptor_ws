@@ -20,7 +20,7 @@ MotorControl::MotorControl(rclcpp::Node::SharedPtr &nh) : mNh(nh)
 		RosCanConstants::RosTopics::mqtt_rover_status,
 		qos, std::bind(&MotorControl::handleRoverStatus, this, std::placeholders::_1));
 	mCalibrationMotorCommandSub = mNh->create_subscription<rex_interfaces::msg::VescMotorCommand>(
-		RosCanConstants::RosTopics::mqtt_calibrate_axis,
+		RosCanConstants::RosTopics::can_calibration_motor_command,
 		qos, std::bind(&MotorControl::handleCalibrationMotorCommand, this, std::placeholders::_1));
 
 	mTimer = mNh->create_timer(std::chrono::milliseconds(500), std::bind(&MotorControl::handleTimerClb, this));
