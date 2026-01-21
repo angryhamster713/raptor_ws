@@ -5,6 +5,7 @@ const std::string CALIBRATION_POS_ACCELERATION = "calibration.pos_acceleration";
 
 const std::string CALIBRATION_MAX_SPEED = "calibration.max_speed";
 const std::string CALIBRATION_MAX_OFFSET_SHIFT = "calibration.max_offset_shift";
+const std::string CALIBRATION_MAX_VELOCITY_SHIFT = "calibration.max_velocity_shift";
 
 const std::string CALIBRATION_OUTDATED_DURATION_S = "calibration.outdated_duration_s";
 const std::string CALIBRATION_SPEED_TIMEOUT_MS = "calibration.speed_timeout_ms";
@@ -14,6 +15,16 @@ const std::string CALIBRATION_STOP_CONDITION = "calibration.stop_condition";
 const std::string CALIBRATION_STOP_TOLERANCE = "calibration.stop_tolerance";
 
 constexpr float NaN = std::numeric_limits<float>::quiet_NaN();
+
+template <typename T>
+int signum(T val)
+{
+	if (val > 0)
+		return 1;
+	if (val < 0)
+		return -1;
+	return 0;
+}
 
 CalibrateAxis::CalibrateAxis(const rclcpp::NodeOptions &options) : Node("calibrate_axis", options)
 {
@@ -68,6 +79,7 @@ void CalibrateAxis::initParams()
 		{CALIBRATION_POS_ACCELERATION, 3.0f},
 		{CALIBRATION_MAX_SPEED, 3.0f},
 		{CALIBRATION_MAX_OFFSET_SHIFT, 30.0f},
+		{CALIBRATION_MAX_VELOCITY_SHIFT, 30.0f},
 		{CALIBRATION_OUTDATED_DURATION_S, 0.3f},
 		{CALIBRATION_STOP_TOLERANCE, 0.5f}};
 	for (auto &[name, value] : mFloatParams)
@@ -111,6 +123,7 @@ bool CalibrateAxis::calibrationMotorsContains(VESC_Id_t vescID)
 
 void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg)
 {
+	RCLCPP_INFO(this->get_logger(), "%d precise %lf pid %f", msg->vesc_id, msg->precise_pos, msg->pid_pos);
 	if (!calibrationMotorsContains(msg->vesc_id))
 	{
 		return;
@@ -126,6 +139,17 @@ void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::Cons
 	{
 		RCLCPP_INFO(this->get_logger(), "End of SetPos reached, holding...");
 		modeHold(mCurrentMotorID);
+	}
+	if (
+		mMode == Mode::SetVelocity &&
+		std::abs(msg->precise_pos) > mFloatParams[CALIBRATION_MAX_VELOCITY_SHIFT] &&
+		signum(mFrameToSend.set_value) == signum(msg->precise_pos) // Moving away from origin
+	)
+	{
+		cancelTimeout(msg->vesc_id);
+		stopMotor(msg->vesc_id);
+		mCurrentMotorID = 0;
+		modeNothing();
 	}
 }
 
@@ -247,6 +271,25 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 
 	case CalibrateMsg::ACTION_TYPE_SET_VELOCITY:
 		RCLCPP_INFO(this->get_logger(), "SetVelocity received for %#x", msg->vesc_id);
+		if (!isRecordedPositionValid(msg->vesc_id))
+		{
+			return;
+		}
+		float precise_pos = mMotorPositions[msg->vesc_id].position;
+		// Don't allow movement more than max shift
+		// If you want to move further, you have to set origin and repeat
+		if (
+			std::abs(precise_pos) > mFloatParams[CALIBRATION_MAX_VELOCITY_SHIFT] &&
+			signum(msg->value) == signum(precise_pos) // Trying to move away from origin
+		)
+		{
+			RCLCPP_WARN_THROTTLE(
+				this->get_logger(), *this->get_clock(), 5 * 1000,
+				"Trying to move too far at once. To rotate more, set origin and try again.");
+			mCurrentMotorID = 0;
+			modeNothing();
+			return;
+		}
 		// Limit value
 		float velocity = msg->value;
 		if (std::abs(velocity) > mFloatParams[CALIBRATION_MAX_SPEED])
