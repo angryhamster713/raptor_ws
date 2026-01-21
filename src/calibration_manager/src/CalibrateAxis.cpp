@@ -129,8 +129,7 @@ void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::Cons
 		return;
 	}
 	rclcpp::Time now = this->get_clock()->now();
-	mMotorPositions[msg->vesc_id] = {static_cast<float>(msg->precise_pos), now};
-	mMotorVelocities[msg->vesc_id] = {msg->erpm, now};
+	mMotorStatuses[msg->vesc_id] = {static_cast<float>(msg->precise_pos), msg->erpm, now};
 
 	if (msg->vesc_id != mCurrentMotorID)
 		return;
@@ -250,12 +249,14 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 			startingPosition = mFrameToSend.set_value * 100.0;
 			break;
 		default:
-			if (!isRecordedPositionValid(msg->vesc_id))
+			if (!isRecordedStatusValid(msg->vesc_id))
 			{
-				// No reference starting position - cannot move!
+				RCLCPP_ERROR(
+					this->get_logger(),
+					"No recent motor status recorded - no reference start position, cannot rotate.");
 				return;
 			}
-			startingPosition = mMotorPositions[msg->vesc_id].position;
+			startingPosition = mMotorStatuses[msg->vesc_id].position;
 		}
 
 		// Limit value
@@ -271,11 +272,12 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 
 	case CalibrateMsg::ACTION_TYPE_SET_VELOCITY:
 		RCLCPP_INFO(this->get_logger(), "SetVelocity received for %#x", msg->vesc_id);
-		if (!isRecordedPositionValid(msg->vesc_id))
+		if (!isRecordedStatusValid(msg->vesc_id))
 		{
+			RCLCPP_ERROR(this->get_logger(), "No recent motor status recorded - cannot verify starting position, won' rotate.");
 			return;
 		}
-		float precise_pos = mMotorPositions[msg->vesc_id].position;
+		float precise_pos = mMotorStatuses[msg->vesc_id].position;
 		// Don't allow movement more than max shift
 		// If you want to move further, you have to set origin and repeat
 		if (
@@ -356,14 +358,14 @@ void CalibrateAxis::modeHold(VESC_Id_t vescID)
 		// Keep sending the same frame
 		mMode = Mode::Hold;
 	}
-	else if (isTimestampOutdated(mMotorPositions[vescID].receivedAt))
+	else if (isTimestampOutdated(mMotorStatuses[vescID].receivedAt))
 	{
 		RCLCPP_ERROR(this->get_logger(), "Tried to hold, but position is outdated");
 		modeNothing();
 	}
 	else
 	{
-		mFrameToSend = frameSetPosition(vescID, mMotorPositions[vescID].position);
+		mFrameToSend = frameSetPosition(vescID, mMotorStatuses[vescID].position);
 		mMode = Mode::Hold;
 	}
 }
@@ -403,37 +405,17 @@ bool CalibrateAxis::isTimestampOutdated(rclcpp::Time stamp)
 	return (now - stamp).seconds() > mFloatParams[CALIBRATION_OUTDATED_DURATION_S];
 }
 
-bool CalibrateAxis::isRecordedVelocityValid(VESC_Id_t vescID)
+bool CalibrateAxis::isRecordedStatusValid(VESC_Id_t vescID)
 {
-	// Checks if the tracked velocity is missing or outdated
+	// Checks if motor status is missing or outdated
 
-	if (!mMotorVelocities.count(vescID))
+	if (!mMotorStatuses.count(vescID))
 	{
-		RCLCPP_WARN(this->get_logger(), "Calibration failed, no recorded velocity for motor with ID %#x", vescID);
 		return false;
 	}
 
-	if (isTimestampOutdated(mMotorVelocities[vescID].receivedAt))
+	if (isTimestampOutdated(mMotorStatuses[vescID].receivedAt))
 	{
-		RCLCPP_WARN(this->get_logger(), "Calibration failed, recorded velocity for motor with id %#x is outdated", vescID);
-		return false;
-	}
-	return true;
-}
-
-bool CalibrateAxis::isRecordedPositionValid(VESC_Id_t vescID)
-{
-	// Checks if the tracked position is missing or outdated
-
-	if (!mMotorPositions.count(vescID))
-	{
-		RCLCPP_WARN(this->get_logger(), "Calibration failed, no recorded position for motor with ID %#x", vescID);
-		return false;
-	}
-
-	if (isTimestampOutdated(mMotorPositions[vescID].receivedAt))
-	{
-		RCLCPP_WARN(this->get_logger(), "Calibration failed, recorded position for motor with id %#x is outdated", vescID);
 		return false;
 	}
 	return true;

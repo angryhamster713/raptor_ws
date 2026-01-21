@@ -20,14 +20,9 @@ extern "C"
 #include <libVescCan/VESC.h>
 }
 
-struct PositionStamped
+struct MotorStatusStamped
 {
     float position;
-    rclcpp::Time receivedAt;
-};
-
-struct VelocityStamped
-{
     int erpm;
     rclcpp::Time receivedAt;
 };
@@ -52,8 +47,7 @@ private:
     rclcpp::TimerBase::SharedPtr mFrameSender;
 
     std::array<VESC_Id_t, 4> mCalibrationMotors;
-    std::map<VESC_Id_t, PositionStamped> mMotorPositions;
-    std::map<VESC_Id_t, VelocityStamped> mMotorVelocities;
+    std::map<VESC_Id_t, MotorStatusStamped> mMotorStatuses;
     std::map<VESC_Id_t, rclcpp::TimerBase::SharedPtr> mSpeedStopTimers;
 
     std::map<std::string, float> mFloatParams;
@@ -87,8 +81,7 @@ private:
 
     bool isTimestampOutdated(rclcpp::Time stamp);
 
-    bool isRecordedVelocityValid(VESC_Id_t vescID);
-    bool isRecordedPositionValid(VESC_Id_t vescID);
+    bool isRecordedStatusValid(VESC_Id_t vescID);
 
     void initTimeoutTimers();
     void startTimeout(VESC_Id_t vescID);
