@@ -59,7 +59,6 @@ private:
     std::map<std::string, float> mFloatParams;
     std::map<std::string, int> mIntParams;
 
-    float mOffset;
     VESC_Id_t mCurrentMotorID;
 
     rex_interfaces::msg::RoverStatus::ConstSharedPtr mLastRoverStatus;
@@ -83,6 +82,8 @@ private:
     void modeSetPos(VESC_Id_t vescID, float pos);
     void modeSetVelocity(VESC_Id_t vescID, float velocity);
     void modeHold(VESC_Id_t vescID);
+
+    bool checkSetPosEndCondition(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg);
 
     bool isTimestampOutdated(rclcpp::Time stamp);
 
