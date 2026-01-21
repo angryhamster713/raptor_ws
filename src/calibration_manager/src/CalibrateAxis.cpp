@@ -30,7 +30,8 @@ CalibrateAxis::CalibrateAxis(const rclcpp::NodeOptions &options) : Node("calibra
 {
 	const rclcpp::QoS qos = rclcpp::QoS(rclcpp::KeepLast(256));
 
-	mMode = Mode::Nothing;
+	modeNothing();
+
 	mCalibrationMotors = {
 		RosCanConstants::VescIds::front_left_stepper,
 		RosCanConstants::VescIds::front_right_stepper,
@@ -66,8 +67,6 @@ CalibrateAxis::CalibrateAxis(const rclcpp::NodeOptions &options) : Node("calibra
 		});
 
 	initTimeoutTimers();
-
-	mCurrentMotorID = 0;
 
 	RCLCPP_INFO(this->get_logger(), "Calibration module started.");
 };
@@ -131,6 +130,8 @@ void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::Cons
 	rclcpp::Time now = this->get_clock()->now();
 	mMotorStatuses[msg->vesc_id] = {static_cast<float>(msg->precise_pos), msg->erpm, now};
 
+	// --- Mode end/stop conditions below
+
 	if (msg->vesc_id != mCurrentMotorID)
 		return;
 
@@ -139,15 +140,14 @@ void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::Cons
 		RCLCPP_INFO(this->get_logger(), "End of SetPos reached, holding...");
 		modeHold(mCurrentMotorID);
 	}
+
 	if (
 		mMode == Mode::SetVelocity &&
 		std::abs(msg->precise_pos) > mFloatParams[CALIBRATION_MAX_VELOCITY_SHIFT] &&
 		signum(mFrameToSend.set_value) == signum(msg->precise_pos) // Moving away from origin
 	)
 	{
-		cancelTimeout(msg->vesc_id);
 		stopMotor(msg->vesc_id);
-		mCurrentMotorID = 0;
 		modeNothing();
 	}
 }
@@ -191,15 +191,12 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 
 	// --------------------
 
-	// Message to a different motor
-	if (mCurrentMotorID != msg->vesc_id)
+	// If a different motor is currently being calibrated,
+	// stop it and forget it.
+	if (mCurrentMotorID && mCurrentMotorID != msg->vesc_id)
 	{
-		if (mCurrentMotorID)
-		{
-			stopMotor(mCurrentMotorID);
-			modeNothing();
-		}
-		mCurrentMotorID = msg->vesc_id;
+		stopMotor(mCurrentMotorID);
+		modeNothing();
 	}
 
 	// --------------------
@@ -209,34 +206,27 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 	switch (msg->action_type)
 	{
 	case CalibrateMsg::ACTION_TYPE_STOP:
-		RCLCPP_INFO(this->get_logger(), "Stop received for %#x", msg->vesc_id);
 		stopMotor(msg->vesc_id);
 		modeHold(msg->vesc_id);
 		break;
 
 	case CalibrateMsg::ACTION_TYPE_RETURN_TO_ORIGIN:
-		RCLCPP_INFO(this->get_logger(), "Return to origin received for %#x", msg->vesc_id);
 		modeSetPos(msg->vesc_id, 0.0f);
 		break;
 
 	case CalibrateMsg::ACTION_TYPE_CONFIRM:
-		RCLCPP_INFO(this->get_logger(), "Confirm received for %#x", msg->vesc_id);
 		stopMotor(msg->vesc_id);
 		fr = frameSetOrigin(msg->vesc_id);
 		mCalibrationMotorCommandPub->publish(fr);
-		mCurrentMotorID = 0;
 		modeNothing();
 		break;
 
 	case CalibrateMsg::ACTION_TYPE_CANCEL:
-		RCLCPP_INFO(this->get_logger(), "Cancel received for %#x", msg->vesc_id);
 		stopMotor(msg->vesc_id);
-		mCurrentMotorID = 0;
 		modeNothing();
 		break;
 
 	case CalibrateMsg::ACTION_TYPE_OFFSET:
-		RCLCPP_INFO(this->get_logger(), "Offset received for %#x", msg->vesc_id);
 		// If mode was SetPos or Hold, take the starting position from the frame
 		// Otherwise, capture position from feedback
 		float startingPosition;
@@ -271,12 +261,12 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 		break;
 
 	case CalibrateMsg::ACTION_TYPE_SET_VELOCITY:
-		RCLCPP_INFO(this->get_logger(), "SetVelocity received for %#x", msg->vesc_id);
 		if (!isRecordedStatusValid(msg->vesc_id))
 		{
-			RCLCPP_ERROR(this->get_logger(), "No recent motor status recorded - cannot verify starting position, won' rotate.");
+			RCLCPP_ERROR(this->get_logger(), "No recent motor status recorded - cannot verify starting position, won't rotate.");
 			return;
 		}
+
 		float precise_pos = mMotorStatuses[msg->vesc_id].position;
 		// Don't allow movement more than max shift
 		// If you want to move further, you have to set origin and repeat
@@ -288,10 +278,10 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 			RCLCPP_WARN_THROTTLE(
 				this->get_logger(), *this->get_clock(), 5 * 1000,
 				"Trying to move too far at once. To rotate more, set origin and try again.");
-			mCurrentMotorID = 0;
 			modeNothing();
 			return;
 		}
+
 		// Limit value
 		float velocity = msg->value;
 		if (std::abs(velocity) > mFloatParams[CALIBRATION_MAX_SPEED])
@@ -303,13 +293,13 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 		// Handle the stop timers
 		if (velocity == 0.0f)
 		{
-			// Only stop if motor was moving.
-			if (mMode == Mode::SetVelocity)
+			// If not holding yet
+			if (mMode != Mode::Hold)
 			{
-				stopMotor(msg->vesc_id);
+				stopMotor(msg->vesc_id); // Also cancels timeout
 				modeHold(msg->vesc_id);
-				cancelTimeout(msg->vesc_id);
 			}
+			// Else, do nothing
 		}
 		else
 		{
@@ -328,7 +318,6 @@ void CalibrateAxis::handleRoverStatus(const rex_interfaces::msg::RoverStatus::Co
 		msg->control_mode != rex_interfaces::msg::RoverStatus::CONTROL_MODE_ESTOP)
 	{
 		modeNothing();
-		mCurrentMotorID = 0;
 	}
 	mLastRoverStatus = msg;
 }
@@ -337,18 +326,21 @@ void CalibrateAxis::modeNothing()
 {
 	mFrameToSend = rex_interfaces::msg::VescMotorCommand();
 	mMode = Mode::Nothing;
+	mCurrentMotorID = 0;
 }
 
 void CalibrateAxis::modeSetPos(VESC_Id_t vescID, float pos)
 {
 	mFrameToSend = frameSetPosition(vescID, pos);
 	mMode = Mode::SetPos;
+	mCurrentMotorID = vescID;
 }
 
 void CalibrateAxis::modeSetVelocity(VESC_Id_t vescID, float velocity)
 {
 	mFrameToSend = frameSetVelocity(vescID, velocity);
 	mMode = Mode::SetVelocity;
+	mCurrentMotorID = vescID;
 }
 
 void CalibrateAxis::modeHold(VESC_Id_t vescID)
@@ -368,6 +360,7 @@ void CalibrateAxis::modeHold(VESC_Id_t vescID)
 		mFrameToSend = frameSetPosition(vescID, mMotorStatuses[vescID].position);
 		mMode = Mode::Hold;
 	}
+	mCurrentMotorID = vescID;
 }
 
 bool CalibrateAxis::checkSetPosEndCondition(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg)
