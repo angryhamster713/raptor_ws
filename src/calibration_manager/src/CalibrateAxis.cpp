@@ -312,6 +312,8 @@ void CalibrateAxis::handleRoverStatus(const rex_interfaces::msg::RoverStatus::Co
 		mLastRoverStatus->control_mode == rex_interfaces::msg::RoverStatus::CONTROL_MODE_ESTOP &&
 		msg->control_mode != rex_interfaces::msg::RoverStatus::CONTROL_MODE_ESTOP)
 	{
+		if (mMode == Mode::SetPos || mMode == Mode::SetVelocity)
+			stopMotor(mCurrentMotorID);
 		modeNothing();
 	}
 	mLastRoverStatus = msg;
