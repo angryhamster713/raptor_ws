@@ -11,8 +11,6 @@ const std::string CALIBRATION_MESSAGE_SEND_PERIOD_MS = "calibration.message_send
 const std::string CALIBRATION_STOP_CONDITION = "calibration.stop_condition";
 const std::string CALIBRATION_STOP_TOLERANCE = "calibration.stop_tolerance";
 
-constexpr float NaN = std::numeric_limits<float>::quiet_NaN();
-
 template <typename T>
 int signum(T val)
 {
@@ -63,7 +61,19 @@ CalibrateAxis::CalibrateAxis(const rclcpp::NodeOptions &options) : Node("calibra
 			}
 		});
 
-	initTimeoutTimers();
+	mVelocityTimeoutTimer = this->create_timer(
+		std::chrono::milliseconds(mIntParams[CALIBRATION_SPEED_TIMEOUT_MS]),
+		[this]
+		{
+			if (mMode != Mode::SetVelocity)
+			{
+				RCLCPP_ERROR(this->get_logger(), "Error: timeout timer wasn't cancelled correctly!");
+			}
+			stopMotor(mCurrentMotorID);
+			modeHold(mCurrentMotorID);
+			// stopMotor cancels the timer
+		});
+	mVelocityTimeoutTimer->cancel();
 
 	RCLCPP_INFO(this->get_logger(), "Calibration module started.");
 };
@@ -299,7 +309,7 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 		else
 		{
 			modeSetVelocity(msg->vesc_id, velocity);
-			startTimeout(msg->vesc_id);
+			startTimeout();
 		}
 
 		break;
@@ -411,49 +421,19 @@ bool CalibrateAxis::isRecordedStatusValid(VESC_Id_t vescID)
 	return true;
 }
 
-void CalibrateAxis::initTimeoutTimers()
+void CalibrateAxis::startTimeout()
 {
-	for (auto id : mCalibrationMotors)
-	{
-		mSpeedStopTimers[id] = this->create_timer(
-			std::chrono::milliseconds(mIntParams[CALIBRATION_SPEED_TIMEOUT_MS]),
-			[this, id]()
-			{
-				if (mMode != Mode::SetVelocity)
-					RCLCPP_ERROR(this->get_logger(), "Mode is not SetVelocity, yet velocity timeout runs anyway");
-				stopMotor(id);
-				if (mCurrentMotorID != id)
-					RCLCPP_ERROR(this->get_logger(), "Timeout ran on non-current motor. Assumption wrong, shouldn't hold.");
-				modeHold(id);
-				// cancelTimeout(vescID); // Redundant as stopMotor already calls cancelTimeout()
-			});
-		mSpeedStopTimers[id]->cancel();
-	}
+	mVelocityTimeoutTimer->reset();
 }
 
-void CalibrateAxis::startTimeout(VESC_Id_t vescID)
+void CalibrateAxis::cancelTimeout()
 {
-	if (!mSpeedStopTimers.count(vescID))
-	{
-		RCLCPP_ERROR(this->get_logger(), "Tried to start timer of invalid motor: %#x", vescID);
-		return;
-	}
-	mSpeedStopTimers[vescID]->reset();
-}
-
-void CalibrateAxis::cancelTimeout(VESC_Id_t vescID)
-{
-	if (!mSpeedStopTimers.count(vescID))
-	{
-		RCLCPP_ERROR(this->get_logger(), "Tried to cancel timer of invalid motor: %#x", vescID);
-		return;
-	}
-	mSpeedStopTimers[vescID]->cancel();
+	mVelocityTimeoutTimer->cancel();
 }
 
 void CalibrateAxis::stopMotor(VESC_Id_t vescID)
 {
-	cancelTimeout(vescID);
+	cancelTimeout();
 
 	rex_interfaces::msg::VescMotorCommand fr = frameStop(vescID);
 	mCalibrationMotorCommandPub->publish(fr);

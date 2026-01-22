@@ -48,7 +48,7 @@ private:
 
     std::array<VESC_Id_t, 4> mCalibrationMotors;
     std::map<VESC_Id_t, MotorStatusStamped> mMotorStatuses;
-    std::map<VESC_Id_t, rclcpp::TimerBase::SharedPtr> mSpeedStopTimers;
+    rclcpp::TimerBase::SharedPtr mVelocityTimeoutTimer;
 
     std::map<std::string, float> mFloatParams;
     std::map<std::string, int> mIntParams;
@@ -83,9 +83,8 @@ private:
 
     bool isRecordedStatusValid(VESC_Id_t vescID);
 
-    void initTimeoutTimers();
-    void startTimeout(VESC_Id_t vescID);
-    void cancelTimeout(VESC_Id_t vescID);
+    void startTimeout();
+    void cancelTimeout();
 
     void stopMotor(VESC_Id_t vescID);
 
