@@ -127,7 +127,7 @@ bool CalibrateAxis::calibrationMotorsContains(VESC_Id_t vescID)
 
 void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::ConstSharedPtr &msg)
 {
-	RCLCPP_INFO(this->get_logger(), "%d precise %lf pid %f", msg->vesc_id, msg->precise_pos, msg->pid_pos);
+	// RCLCPP_INFO(this->get_logger(), "%d precise %lf pid %f", msg->vesc_id, msg->precise_pos, msg->pid_pos);
 	if (!calibrationMotorsContains(msg->vesc_id))
 	{
 		return;
@@ -146,14 +146,16 @@ void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::Cons
 		modeHold(mCurrentMotorID);
 	}
 
+	// If motor is rotated more than allowed at once
 	if (
 		mMode == Mode::SetVelocity &&
 		std::abs(msg->precise_pos) > mFloatParams[CALIBRATION_MAX_VELOCITY_SHIFT] &&
 		signum(mFrameToSend.set_value) == signum(msg->precise_pos) // Moving away from origin
 	)
 	{
-		stopMotor(msg->vesc_id);
-		modeNothing();
+		// Snap to max shift
+		// +1 so that SetVelocity frames in the outer direction will still be rejected
+		modeSetPos(msg->vesc_id, signum(msg->precise_pos) * (mFloatParams[CALIBRATION_MAX_VELOCITY_SHIFT] + 1));
 	}
 }
 
@@ -283,7 +285,8 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 			RCLCPP_WARN_THROTTLE(
 				this->get_logger(), *this->get_clock(), 5 * 1000,
 				"Trying to move too far at once. To rotate more, set origin and try again.");
-			modeNothing();
+			if (mMode == Mode::SetVelocity)
+				modeNothing();
 			return;
 		}
 
@@ -357,7 +360,7 @@ void CalibrateAxis::modeHold(VESC_Id_t vescID)
 		// Keep sending the same frame
 		mMode = Mode::Hold;
 	}
-	else if (isTimestampOutdated(mMotorStatuses[vescID].receivedAt))
+	else if (!isRecordedStatusValid(vescID))
 	{
 		RCLCPP_ERROR(this->get_logger(), "Tried to hold, but position is outdated");
 		modeNothing();
