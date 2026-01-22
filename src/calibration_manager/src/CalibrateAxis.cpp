@@ -1,8 +1,5 @@
 #include "calibration_manager/CalibrateAxis.hpp"
 
-const std::string CALIBRATION_POS_SPEED = "calibration.pos_speed";
-const std::string CALIBRATION_POS_ACCELERATION = "calibration.pos_acceleration";
-
 const std::string CALIBRATION_MAX_SPEED = "calibration.max_speed";
 const std::string CALIBRATION_MAX_OFFSET_SHIFT = "calibration.max_offset_shift";
 const std::string CALIBRATION_MAX_VELOCITY_SHIFT = "calibration.max_velocity_shift";
@@ -74,8 +71,6 @@ CalibrateAxis::CalibrateAxis(const rclcpp::NodeOptions &options) : Node("calibra
 void CalibrateAxis::initParams()
 {
 	mFloatParams = {
-		{CALIBRATION_POS_SPEED, 3.0f},
-		{CALIBRATION_POS_ACCELERATION, 3.0f},
 		{CALIBRATION_MAX_SPEED, 3.0f},
 		{CALIBRATION_MAX_OFFSET_SHIFT, 30.0f},
 		{CALIBRATION_MAX_VELOCITY_SHIFT, 30.0f},

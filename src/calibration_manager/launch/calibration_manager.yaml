@@ -10,10 +10,6 @@ launch:
           name: calibrate_axis
           namespace: "raptor"
           param:
-            - name: "calibration.pos_speed"
-              value: 3.0
-            - name: "calibration.pos_acceleration"
-              value: 3.0
             - name: "calibration.max_speed"
               value: 5000.0
             - name: "calibration.max_offset_shift"
