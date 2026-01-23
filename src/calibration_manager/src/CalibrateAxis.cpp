@@ -69,6 +69,7 @@ CalibrateAxis::CalibrateAxis(const rclcpp::NodeOptions &options) : Node("calibra
 			{
 				RCLCPP_ERROR(this->get_logger(), "Error: timeout timer wasn't cancelled correctly!");
 			}
+			RCLCPP_INFO(this->get_logger(), "Motor [%d] stopped by timeout", mCurrentMotorID);
 			stopMotor(mCurrentMotorID);
 			modeHold(mCurrentMotorID);
 			// stopMotor cancels the timer
@@ -153,6 +154,7 @@ void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::Cons
 		signum(mFrameToSend.set_value) == signum(msg->precise_pos) // Moving away from origin
 	)
 	{
+		RCLCPP_INFO(this->get_logger(), "Max velocity shift reached, snapping to %d", signum(msg->precise_pos) * (mFloatParams[CALIBRATION_MAX_VELOCITY_SHIFT] + 1));
 		// Snap to max shift
 		// +1 so that SetVelocity frames in the outer direction will still be rejected
 		modeSetPos(msg->vesc_id, signum(msg->precise_pos) * (mFloatParams[CALIBRATION_MAX_VELOCITY_SHIFT] + 1));
@@ -334,6 +336,7 @@ void CalibrateAxis::handleRoverStatus(const rex_interfaces::msg::RoverStatus::Co
 
 void CalibrateAxis::modeNothing()
 {
+	RCLCPP_INFO(this->get_logger(), "MODE Nothing");
 	mFrameToSend = rex_interfaces::msg::VescMotorCommand();
 	mMode = Mode::Nothing;
 	mCurrentMotorID = 0;
@@ -341,6 +344,7 @@ void CalibrateAxis::modeNothing()
 
 void CalibrateAxis::modeSetPos(VESC_Id_t vescID, float pos)
 {
+	RCLCPP_INFO(this->get_logger(), "MODE SetPos [%d]: %d", vescID, pos);
 	mFrameToSend = frameSetPosition(vescID, pos);
 	mMode = Mode::SetPos;
 	mCurrentMotorID = vescID;
@@ -348,6 +352,7 @@ void CalibrateAxis::modeSetPos(VESC_Id_t vescID, float pos)
 
 void CalibrateAxis::modeSetVelocity(VESC_Id_t vescID, float velocity)
 {
+	RCLCPP_INFO(this->get_logger(), "MODE SetVelocity [%d]: %d", vescID, velocity);
 	mFrameToSend = frameSetVelocity(vescID, velocity);
 	mMode = Mode::SetVelocity;
 	mCurrentMotorID = vescID;
@@ -370,6 +375,7 @@ void CalibrateAxis::modeHold(VESC_Id_t vescID)
 		mFrameToSend = frameSetPosition(vescID, mMotorStatuses[vescID].position);
 		mMode = Mode::Hold;
 	}
+	RCLCPP_INFO(this->get_logger(), "MODE Hold [%d]: %d", vescID, mFrameToSend.set_value * 100.0);
 	mCurrentMotorID = vescID;
 }
 
