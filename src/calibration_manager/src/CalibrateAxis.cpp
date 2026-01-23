@@ -11,6 +11,8 @@ const std::string CALIBRATION_MESSAGE_SEND_PERIOD_MS = "calibration.message_send
 const std::string CALIBRATION_STOP_CONDITION = "calibration.stop_condition";
 const std::string CALIBRATION_STOP_TOLERANCE = "calibration.stop_tolerance";
 
+const std::string CALIBRATION_LOG_SETPOS_DIFF = "calibration.log_setpos_diff";
+
 template <typename T>
 int signum(T val)
 {
@@ -96,7 +98,8 @@ void CalibrateAxis::initParams()
 	mIntParams = {
 		{CALIBRATION_SPEED_TIMEOUT_MS, 500},
 		{CALIBRATION_STOP_CONDITION, 3},
-		{CALIBRATION_MESSAGE_SEND_PERIOD_MS, 1000 / 50}};
+		{CALIBRATION_MESSAGE_SEND_PERIOD_MS, 1000 / 50},
+		{CALIBRATION_LOG_SETPOS_DIFF, 0}};
 	for (auto &[name, value] : mIntParams)
 	{
 		this->declare_parameter(name, value);
@@ -388,6 +391,12 @@ bool CalibrateAxis::checkSetPosEndCondition(const rex_interfaces::msg::VescStatu
 
 	// Scale related to https://github.com/AlvaroBajceps/libVescCan/issues/10
 	float targetValue = mFrameToSend.set_value * 100.0;
+
+	if (mIntParams[CALIBRATION_LOG_SETPOS_DIFF])
+		RCLCPP_INFO(
+			this->get_logger(), "Target is %f, current is %f, diff is %f, tolerance is %f",
+			targetValue, msg->precise_pos, std::abs(targetValue - msg->precise_pos), mFloatParams[CALIBRATION_STOP_TOLERANCE]);
+
 	switch (mIntParams[CALIBRATION_STOP_CONDITION])
 	{
 	default:
@@ -395,11 +404,9 @@ bool CalibrateAxis::checkSetPosEndCondition(const rex_interfaces::msg::VescStatu
 		return msg->erpm == 0;
 		break;
 	case 2:
-		// RCLCPP_INFO(this->get_logger(), "diff %f but can be max %f", msg->precise_pos - targetValue, mFloatParams[CALIBRATION_STOP_TOLERANCE]);
 		return std::abs(msg->precise_pos - targetValue) <= mFloatParams[CALIBRATION_STOP_TOLERANCE];
 		break;
 	case 3:
-		// RCLCPP_INFO(this->get_logger(), "diff %f but can be max %f", msg->precise_pos - targetValue, mFloatParams[CALIBRATION_STOP_TOLERANCE]);
 		return msg->erpm == 0 && std::abs(msg->precise_pos - targetValue) <= mFloatParams[CALIBRATION_STOP_TOLERANCE];
 		break;
 	case 4:

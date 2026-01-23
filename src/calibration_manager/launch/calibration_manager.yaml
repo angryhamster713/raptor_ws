@@ -22,3 +22,5 @@ launch:
               value: 2
             - name: "calibration.stop_tolerance"
               value: 1.0
+            - name: "calibration.log_setpos_diff"
+              value: 0
