@@ -24,3 +24,5 @@ launch:
               value: 1.0
             - name: "calibration.log_setpos_diff"
               value: 0
+            - name: "calibration.use_schedule_hold"
+              value: 1

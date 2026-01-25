@@ -54,6 +54,7 @@ private:
     std::map<std::string, int> mIntParams;
 
     VESC_Id_t mCurrentMotorID;
+    bool mScheduleHold;
 
     rex_interfaces::msg::RoverStatus::ConstSharedPtr mLastRoverStatus;
 

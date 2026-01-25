@@ -12,6 +12,7 @@ const std::string CALIBRATION_STOP_CONDITION = "calibration.stop_condition";
 const std::string CALIBRATION_STOP_TOLERANCE = "calibration.stop_tolerance";
 
 const std::string CALIBRATION_LOG_SETPOS_DIFF = "calibration.log_setpos_diff";
+const std::string CALIBRATION_USE_SCHEDULE_HOLD = "calibration.use_schedule_hold";
 
 template <typename T>
 int signum(T val)
@@ -73,10 +74,18 @@ CalibrateAxis::CalibrateAxis(const rclcpp::NodeOptions &options) : Node("calibra
 			}
 			RCLCPP_INFO(this->get_logger(), "Motor [%d] stopped by timeout", mCurrentMotorID);
 			stopMotor(mCurrentMotorID);
-			modeHold(mCurrentMotorID);
+			if (mIntParams[CALIBRATION_USE_SCHEDULE_HOLD])
+			{
+				modeNothing();
+				mScheduleHold = true;
+			}
+			else
+				modeHold(mCurrentMotorID);
 			// stopMotor cancels the timer
 		});
 	mVelocityTimeoutTimer->cancel();
+
+	mScheduleHold = false;
 
 	RCLCPP_INFO(this->get_logger(), "Calibration module started.");
 };
@@ -99,7 +108,8 @@ void CalibrateAxis::initParams()
 		{CALIBRATION_SPEED_TIMEOUT_MS, 500},
 		{CALIBRATION_STOP_CONDITION, 3},
 		{CALIBRATION_MESSAGE_SEND_PERIOD_MS, 1000 / 50},
-		{CALIBRATION_LOG_SETPOS_DIFF, 0}};
+		{CALIBRATION_LOG_SETPOS_DIFF, 0},
+		{CALIBRATION_USE_SCHEDULE_HOLD, 1}};
 	for (auto &[name, value] : mIntParams)
 	{
 		this->declare_parameter(name, value);
@@ -144,10 +154,25 @@ void CalibrateAxis::handleVescStatus(const rex_interfaces::msg::VescStatus::Cons
 	if (msg->vesc_id != mCurrentMotorID)
 		return;
 
+	if (mScheduleHold)
+	{
+		if (mMode != Mode::Nothing)
+		{
+			RCLCPP_ERROR(this->get_logger(), "Hold schedule wasn't cancelled correctly! Any mode changes should cancel it.");
+		}
+		else
+		{
+			// Now that new status has been received, motor can Hold (prevents jerk when stopping during SetVelocity)
+			modeHold(mCurrentMotorID);
+			return;
+		}
+	}
+
 	if (mMode == Mode::SetPos && checkSetPosEndCondition(msg))
 	{
 		RCLCPP_INFO(this->get_logger(), "End of SetPos reached, holding...");
 		modeHold(mCurrentMotorID);
+		return;
 	}
 
 	// If motor is rotated more than allowed at once
@@ -221,7 +246,10 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 	case CalibrateMsg::ACTION_TYPE_STOP:
 		stopMotor(msg->vesc_id);
 		modeNothing(); // Clear the SetPos frame so that Hold doesn't use it
-		modeHold(msg->vesc_id);
+		if (mIntParams[CALIBRATION_USE_SCHEDULE_HOLD])
+			mScheduleHold = true;
+		else
+			modeHold(msg->vesc_id);
 		break;
 
 	case CalibrateMsg::ACTION_TYPE_RETURN_TO_ORIGIN:
@@ -308,13 +336,19 @@ void CalibrateAxis::handleCalibrateAxis(const rex_interfaces::msg::CalibrateAxis
 		// Handle the stop timers
 		if (velocity == 0.0f)
 		{
-			// If not holding yet
-			if (mMode != Mode::Hold)
+			// If not holding yet (and hold not scheduled)
+			if (mMode != Mode::Hold && !mScheduleHold)
 			{
 				stopMotor(msg->vesc_id); // Also cancels timeout
-				modeHold(msg->vesc_id);
+				if (mIntParams[CALIBRATION_USE_SCHEDULE_HOLD])
+				{
+					modeNothing();
+					mScheduleHold = true;
+				}
+				else
+					modeHold(msg->vesc_id);
 			}
-			// Else, do nothing
+			// Already holding, do nothing
 		}
 		else
 		{
@@ -342,6 +376,7 @@ void CalibrateAxis::handleRoverStatus(const rex_interfaces::msg::RoverStatus::Co
 void CalibrateAxis::modeNothing()
 {
 	RCLCPP_INFO(this->get_logger(), "MODE Nothing");
+	mScheduleHold = false;
 	mFrameToSend = rex_interfaces::msg::VescMotorCommand();
 	mMode = Mode::Nothing;
 	mCurrentMotorID = 0;
@@ -350,6 +385,7 @@ void CalibrateAxis::modeNothing()
 void CalibrateAxis::modeSetPos(VESC_Id_t vescID, float pos)
 {
 	RCLCPP_INFO(this->get_logger(), "MODE SetPos [%d]: %f", vescID, pos);
+	mScheduleHold = false;
 	mFrameToSend = frameSetPosition(vescID, pos);
 	mMode = Mode::SetPos;
 	mCurrentMotorID = vescID;
@@ -358,6 +394,7 @@ void CalibrateAxis::modeSetPos(VESC_Id_t vescID, float pos)
 void CalibrateAxis::modeSetVelocity(VESC_Id_t vescID, float velocity)
 {
 	RCLCPP_INFO(this->get_logger(), "MODE SetVelocity [%d]: %f", vescID, velocity);
+	mScheduleHold = false;
 	mFrameToSend = frameSetVelocity(vescID, velocity);
 	mMode = Mode::SetVelocity;
 	mCurrentMotorID = vescID;
@@ -365,6 +402,7 @@ void CalibrateAxis::modeSetVelocity(VESC_Id_t vescID, float velocity)
 
 void CalibrateAxis::modeHold(VESC_Id_t vescID)
 {
+	mScheduleHold = false;
 	if (mMode == Mode::SetPos)
 	{
 		// Keep sending the same frame
