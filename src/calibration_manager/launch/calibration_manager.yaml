@@ -19,7 +19,7 @@ launch:
             - name: "calibration.speed_timeout_ms"
               value: 500
             - name: "calibration.stop_condition"
-              value: 2
+              value: 3
             - name: "calibration.stop_tolerance"
               value: 1.0
             - name: "calibration.log_setpos_diff"
